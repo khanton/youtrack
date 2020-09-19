@@ -15,49 +15,21 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-type config struct {
-	Youtrack struct {
-		Host    string
-		Token   string
-		Project string
-		Prefix  string
-	}
-}
-
 type issue struct {
 	ID string
 }
 
-func readConfig(fileName string) (*config, error) {
-
-	yamlFile, err := ioutil.ReadFile(fileName)
-
-	if err != nil {
-		return nil, err
-	}
-
-	conf := config{}
-
-	err = yaml.Unmarshal(yamlFile, &conf)
-	if err != nil {
-		return nil, err
-	}
-
-	return &conf, nil
-}
-
-func getIssueID(config *config, task string) (string, error) {
+func getIssueID(host *string, token *string, task *string) (string, error) {
 	v := url.Values{}
 	v.Set("fields", "idReadable,id,summary")
-	v.Set("query", fmt.Sprintf("project:%s #%s", config.Youtrack.Project, task))
 
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/issues/?%s", config.Youtrack.Host, v.Encode()), nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/issues/?%s", *host, v.Encode()), nil)
 
 	if err != nil {
 		return "", err
 	}
 
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.Youtrack.Token))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", *token))
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Accepted", "application/json")
 
@@ -96,19 +68,19 @@ func getIssueID(config *config, task string) (string, error) {
 	return issues[0].ID, nil
 }
 
-func setIssueState(config *config, issue *string, newState *string) error {
+func setIssueState(host *string, token *string, issue *string, newState *string) error {
 	v := url.Values{}
 	v.Set("fields", "customFields(id,name,value(name))")
 
 	req, err := http.NewRequest("POST",
-		fmt.Sprintf("%s/api/issues/%s?%s", config.Youtrack.Host, *issue, v.Encode()),
+		fmt.Sprintf("%s/api/issues/%s?%s", *host, *issue, v.Encode()),
 		bytes.NewBufferString(fmt.Sprintf(`{ "customFields":[ { "name": "State", "$type": "StateIssueCustomField", "value": { "name": "%s" } }]}`, *newState)))
 
 	if err != nil {
 		return err
 	}
 
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.Youtrack.Token))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", *token))
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Accepted", "application/json")
 
@@ -123,48 +95,27 @@ func setIssueState(config *config, issue *string, newState *string) error {
 		return err
 	}
 
-	// bodyText, err := ioutil.ReadAll(resp.Body)
-
-	// if err != nil {
-	// 	return err
-	// }
-
 	if resp.StatusCode != 200 {
-		return errors.New("Issue not found")
+		return errors.New("Error")
 	}
-
-	// log.Println(string(bodyText))
 
 	return nil
 }
 
 func main() {
-	taskPtr := flag.String("task", "", "task id")
-	toStatePtr := flag.String("ns", "", "new state for task")
-	configPtr := flag.String("config", "config.yml", "config file")
+	taskID := flag.String("task", "", "task id")
+	newState := flag.String("ns", "", "new state for task")
+	host := flag.String("host", "", "host with proto like: https://youtracl.adnous.ru")
+	token := flag.String("token", "", "YouTrack API token")
 
 	flag.Parse()
 
-	if *taskPtr == "" || *toStatePtr == "" {
+	if *taskID == "" || *newState == "" || *host == "" || *token == "" {
 		flag.Usage()
 		os.Exit(200)
 	}
 
-	conf, err := readConfig(*configPtr)
-
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(200)
-	}
-
-	_, err = getIssueID(conf, *taskPtr)
-
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(200)
-	}
-
-	err = setIssueState(conf, taskPtr, toStatePtr)
+	err := setIssueState(host, token, taskID, newState)
 
 	if err != nil {
 		log.Fatal(err)
